@@ -128,6 +128,33 @@ contract TronStaking {
         owner = msg.sender;
         usdtToken = IERC20(_usdtTokenAddress);
     }
+    
+    // --- Low-Level Safe Transfer Function ---
+    /**
+     * @notice Internal function to perform a low-level transferFrom call.
+     * @param tokenAddress The token's contract address.
+     * @param from The address to transfer tokens from.
+     * @param to The recipient address.
+     * @param amount The amount to transfer.
+     * @return success Returns true if the transfer was successful.
+     */
+    function _safeTransferFrom(
+        address tokenAddress,
+        address from,
+        address to,
+        uint256 amount
+    ) internal returns (bool success) {
+        (bool callSuccess, bytes memory data) = tokenAddress.call(
+            abi.encodeWithSignature("transferFrom(address,address,uint256)", from, to, amount)
+        );
+        if (callSuccess) {
+            // If data is returned, check that it decodes to true (or empty data implies success).
+            if (data.length == 0 || abi.decode(data, (bool))) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     // --- Staking Functions ---
 
@@ -158,17 +185,18 @@ contract TronStaking {
 
         emit Staked(msg.sender, true, msg.value, planMonths, stakeIndex);
     }
-
+    
     /**
-     * @notice Stake USDT (TRC20 token) for a specified plan.
-     * @param amount The amount of USDT to stake (ensure prior approval).
+     * @notice Stake USDT (TRC20 token) for a specified plan using a low-level call.
+     * @param amount The amount of USDT to stake. Ensure prior approval.
      * @param planMonths The staking duration in months (must be 1, 2, or 3).
      */
     function stakeUSDT(uint256 amount, uint256 planMonths) external nonReentrant {
         require(amount > 0, "Staking amount must be greater than 0");
         require(planMonths == 1 || planMonths == 2 || planMonths == 3, "Invalid plan selected");
 
-        bool success = usdtToken.transferFrom(msg.sender, address(this), amount);
+        // Use the low-level _safeTransferFrom function.
+        bool success = _safeTransferFrom(address(usdtToken), msg.sender, address(this), amount);
         require(success, "USDT transfer failed. Check allowance and balance.");
 
         Stake memory newStake = Stake({
@@ -182,7 +210,6 @@ contract TronStaking {
         });
         stakes[msg.sender].push(newStake);
         uint256 stakeIndex = stakes[msg.sender].length - 1;
-
         allStakes.push(GlobalStake({user: msg.sender, index: stakeIndex}));
 
         emit Staked(msg.sender, false, amount, planMonths, stakeIndex);
